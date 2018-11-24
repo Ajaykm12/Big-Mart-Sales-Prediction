@@ -1,0 +1,424 @@
+---
+title: "Sales Prediction of a Retail company"
+output: html_notebook
+---
+
+
+```{r}
+
+# First lets set the path.
+
+setwd("E:/ML/Analyts Vidya/Big Mart Sales Prediction Using R")
+
+getwd()
+
+# First lets load the required packages.
+
+library(data.table) # used for reading and manipulation of data
+library(dplyr)      # used for data manipulation and joining
+library(ggplot2)    # used for ploting 
+library(caret)      # used for modeling
+library(corrplot)   # used for making correlation plot
+library(xgboost)    # used for building XGBoost model
+library(cowplot)    # used for combining multiple plots 
+
+??fread
+
+train = fread("Train_UWu5bXk.csv")
+test  = fread("Test_u94Q5KV.csv") 
+submission = fread("SampleSubmission_TmnO39y.csv")
+
+# lets understand the data
+
+dim(train);dim(test)
+
+# we have 8523 rows and 12 columns in training and 5681 rows and 11 columns in test.
+
+str(train);str(test)
+
+# we get the structure of the train and test dataset.
+
+# You can even use names function.
+
+names(train)
+
+names(test)
+
+# Item_Outlet_Sales is the target variable which we need to predict.
+
+# here we have charector variables and 4 numeric variables.
+
+# Before combining the train and test data set, lets add the target variable - Item_Outlet_Sales to test and append NA values to all rowws of it.
+
+test[, Item_Outlet_Sales := NA]
+
+# now check the test dataset
+
+str(test)
+
+# combine train and test.
+
+comb = rbind(train,test)
+
+dim(comb) # so we have 14204 rows and 12 columns.
+
+head(comb)
+
+str(comb)
+
+# Lets start with data visualization
+# Our target variable is continous so lets use histogram.
+
+ggplot(train) + geom_histogram(aes(train$Item_Outlet_Sales),fill = 'darkblue',binwidth = 80) + xlab("Item_Outlet_Sales")
+
+# We see its a right skewed distribution. we would need some data tranformation to treat its skewness.
+
+# now lets check the independant variables(numeric variables)
+
+p1 = ggplot(comb) + geom_histogram(aes(Item_Weight), fill = "green", bins = 30) 
+p2 = ggplot(comb) + geom_histogram(aes(Item_Visibility), fill = "green", bins =30 )
+p3 = ggplot(comb) + geom_histogram(aes(Item_MRP), fill = "green", bins = 30)
+
+# NNow lets use cowplot to combine the above plots.
+
+plot_grid(p1, p2, p3, nrow = 1)
+
+# Observations :
+
+# Item_weight has no clear-cut pattern.
+# item_Visibikity is right skewed.
+# Interestingly item_MRP has 4 diff. distributions. we may need to check it further.
+
+# Now lets check for categorical variables.
+
+# Categorical can have finite set of variables. lets start with Item_fat_content
+
+ggplot(comb %>% group_by(Item_Fat_Content) %>% summarise(Count= n())) + geom_bar(aes(Item_Fat_Content,Count),stat = "identity", fill = "orange")
+
+#We see LF and Low fat are the same and also reg and Regular are also he same. so lets combine them and plot again.
+
+comb$Item_Fat_Content[comb$Item_Fat_Content == 'LF'] = 'Low Fat'
+comb$Item_Fat_Content[comb$Item_Fat_Content == 'low fat'] = 'Low Fat'
+comb$Item_Fat_Content[comb$Item_Fat_Content == 'reg'] = 'Regular'
+
+
+ggplot(comb %>% group_by(Item_Fat_Content) %>% summarise(Count= n())) + 
+  geom_bar(aes(Item_Fat_Content, Count), stat = "identity", fill = "pink")
+
+# we have around 8200 Low fat and around 5000 regular fat.
+
+# next lets see - item_type
+
+ggplot(comb %>% group_by(Item_Type) %>% summarise(Count= n())) + 
+  geom_bar(aes(Item_Type , Count), stat = "identity", fill = 'black') + xlab("") +
+  geom_label(aes(Item_Type,Count,label = Count), vjust=0.5) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Item_Type")
+
+# we have high no. of fruits and vegetables and Snack foods.
+
+# next plot for Outlet_Identifier
+
+ggplot(comb %>% group_by(Outlet_Identifier) %>% summarise(Count= n())) + 
+  geom_bar(aes(Outlet_Identifier, Count), stat = "identity", fill = 'brown') + xlab("") +
+  geom_label(aes(Outlet_Identifier,Count,label = Count), vjust=0.5) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Outlet_Identifier")
+
+# we have equal no. of outlets_identifiers for all the outlets except for Outlet no. 10 and outlet no. 19.
+
+# Now lets check for outlet_size
+
+
+ggplot(comb %>% group_by(Outlet_Size) %>% summarise(Count= n())) + 
+  geom_bar(aes(Outlet_Size, Count), stat = "identity", fill = 'Grey') + xlab("") +
+  geom_label(aes(Outlet_Size,Count,label = Count), vjust=0.5) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("outlet_Size")
+
+# here we have 4016 missing outlets. we will impute values when we do bivariate analysis.
+
+# we have low. no of HIGH sized outlets.
+
+# next will check for outlet_Location_Type
+
+
+ggplot(comb %>% group_by(Outlet_Location_Type) %>% summarise(Count= n())) + 
+  geom_bar(aes(Outlet_Location_Type, Count), stat = "identity", fill = 'red') + xlab("") +
+  geom_label(aes(Outlet_Location_Type,Count,label = Count), vjust=0.5) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Outlet_Location_Type")
+
+# we have high no. of tier 3 when compared to other 2.
+
+# now lets plot for Outlet_Establishment_year and Outlet_Type
+
+p7 = ggplot(comb %>% group_by(Outlet_Establishment_Year) %>% summarise(Count= n())) + 
+  geom_bar(aes(factor(Outlet_Establishment_Year), Count), stat = "identity", fill = 'green') + 
+  geom_label(aes(factor(Outlet_Establishment_Year),Count,label = Count), vjust=0.5) +
+  xlab("Outlet_Establishment_Year") +
+  theme(axis.text.x = element_text(size = 8.5)) 
+
+# lets check the outlet_type
+
+p8 = ggplot(comb %>% group_by(Outlet_Type) %>% summarise(Count= n())) + 
+  geom_bar(aes(Outlet_Type, Count), stat = "identity", fill = 'violet') + xlab("") +
+  geom_label(aes(Outlet_Type,Count,label = Count), vjust=0.5) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Outlet_Type")
+
+
+# Now lets combine both .
+
+plot_grid(p7,p8, ncol = 2)
+
+# 1985 year has highest nos and 1998 has lowest when compared to all others.
+ 
+# Supermarket Type 1 seems to be the most popular category in Outlet_Type.
+
+# Next lets check for Bivariate Analysis.
+
+# lets extract train data from combined dataset.
+
+train = comb[1:nrow(train)]
+
+# Target Variables vs Independant Numeric Variables.
+
+# Item_Weight vs item_Outlet_Sales
+
+p9 = ggplot(train) + geom_point(aes(Item_Weight, Item_Outlet_Sales),color = "blue" , alpha = 0.3) + 
+  theme(axis.title = element_text(size = 8.5))
+
+# item_Visibility vs item_outlet_sales
+
+p10 = ggplot(train) + geom_point(aes(Item_Visibility, Item_Outlet_Sales),color = "brown" , alpha = 0.3) + 
+  theme(axis.title = element_text(size = 8.5))
+
+# item_mrp vs item_outlet_sales
+
+p11 = ggplot(train) + geom_point(aes(Item_MRP, Item_Outlet_Sales),color = "black" , alpha = 0.3) + 
+  theme(axis.title = element_text(size = 8.5))
+
+# now lets combine the above plots.
+
+second_row = plot_grid(p10,p11, ncol = 2)
+plot_grid(second_row, p9 , nrow = 2)
+
+# Observations : 
+
+# 1. For Item_Weight vs item_Outlet_Sales there is no perticular pattern observed.
+# 2. For item_Visibility vs item_outlet_sales, we see a  string of points at item_visibility at 0.0 which is strange as item_visibility is completely Zero. we will
+# deal with this in the later stage.
+# 3. For item_mrp vs item_outlet_sales, we can cleary see 4 different segemts of prices. we can create new features out of these in the later stage.
+
+# now lets chck for the categorical variables vs target variable. Here vll try to check the distribution of target variable across all the
+# categories of each of the categorical variable.
+
+
+# we have used violin plots as it'll show the complete distribution of data. the width of the violin plot tells the density or concentration of data at that level.
+# the height tells us the range of the target variable.
+
+# Item_Type vs item_outlet_Sales
+
+p12 = ggplot(train) + geom_violin(aes(Item_Type , Item_Outlet_Sales),fill = 'magenta') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8))
+       
+# Item_Fat_Content vs item_outlet_Sales
+ 
+p13 = ggplot(train) + geom_violin(aes(Item_Fat_Content , Item_Outlet_Sales),fill = 'magenta') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8))
+
+# Outlet_Identifier vs item_outlet_sales
+
+p14 =  ggplot(train) + geom_violin(aes(Outlet_Identifier , Item_Outlet_Sales),fill = 'magenta') + 
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8))
+
+second_row_3 = plot_grid(p13, p14, ncol = 2)
+plot_grid(p12, second_row_3, ncol = 1)
+
+# Observations:
+
+# Distribution of item_Outlet_Sales across item_Type is same. same with the Item_Fat_Content.
+
+# The distribution of OUT010 and OUT019 is quite smaller when compared to other Outlet_identifiers.
+
+
+# Outlet_Size vs item_outlet_sales
+# Note that we have noticed some missing values while performing univariate analysis for Outlet_Size.
+
+
+ggplot(train) + geom_violin(aes(Outlet_Size, Item_Outlet_Sales),fill = 'magenta') 
+
+# Note that the small outlet_type is similar to the missing outlet_type. hence we will impute the small to missing values.
+# Note that this is not the only way and there are many other ways as well.
+
+# Lets examine the remaining variables.
+
+#  outlet_type vs Item_Outlet_Sales and Outlet_Location_Type vs Outlet_sales
+
+p15 = ggplot(train) + geom_violin(aes(Outlet_Location_Type, Item_Outlet_Sales), fill = "magenta")
+p16 = ggplot(train) + geom_violin(aes(Outlet_Type, Item_Outlet_Sales), fill = "magenta")
+plot_grid(p15, p16, ncol = 1)
+
+# Observations :
+
+# In Outlet_Location_Type , Tier 1 and tier 3 looks similar.
+# In outlet_type, grocery Store has most of its data points around the lower sales when compared to other outlet types.
+
+# Lets check which all variabkes has missing values.
+
+summary(comb)
+
+# there are 2439 missing values in item_Weight and 5681 missing values in item_Outlet_sales. Note tht missing values in item_Outlet_sales can be ignored since its test dataset.
+#you can just confirm it by checking train dataset.
+
+sum(is.na(comb$Item_Weight))
+
+sum(is.na(train$Item_Outlet_Sales))
+
+# Hence we need to impute these missing valus in Item_Weight column.
+
+# We will impute mean weight  based on item_identifier vvariable.
+
+missing_index = which(is.na(comb$Item_Weight))
+for(i in missing_index){
+  
+  item = comb$Item_Identifier[i]
+  comb$Item_Weight[i] = mean(comb$Item_Weight[comb$Item_Identifier == item], na.rm = T)
+}
+
+View(comb)
+
+ sum(is.na(comb$Item_Weight))
+
+ # now there are no NA values.
+ 
+ # we even have 0's in the Item_Visibility column. Even here We need to impute them with item_identifier's mean.
+ 
+ ggplot(comb) + geom_histogram(aes(Item_Visibility), bins = 100)
+ 
+ Zero_index = which(comb$Item_Visibility==0)
+ for(i in Zero_index)
+ {
+   
+    item = comb$Item_Identifier[i]
+    comb$Item_Visibility [i] = mean(comb$Item_Visibility[comb$Item_Identifier== item],na.rm = T)
+ }
+ 
+ # After imputing, now lets check for the 0 values in item_Visibility.
+ 
+ ggplot(comb) + geom_histogram(aes(Item_Visibility), bins = 100) # there is no 0 values.
+ 
+ 
+ # Feature Engineering 
+ 
+ # 1. we will create new features in Item_type i.e perishable and Non_Perishable items.
+ 
+ unique(comb$Item_Type)
+ 
+ perishable = c("Dairy", "Meat", "Fruits and Vegetables", "Breakfast", "Breads","Seafood")
+ non_perishable = c("Soft Drinks" , "Household", "Baking Goods" , "Frozen Foods" , "Health and Hygiene" , "Hard Drinks" , "Canned")
+ 
+ # Create New feature Item_Type_New
+ 
+ comb[, Item_Type_new := ifelse(Item_Type %in% perishable , "perishable", ifelse(Item_Type %in% non_perishable, "non_perishable" , "not_sure"))]
+
+# 2. Next Lets compare the item_type with the item_identifier
+ 
+# check the first 3 item_identifiers.
+ 
+# we have FD, DR and NC which most probably stands for Food, Drinks and Non- Consumable.
+ 
+ table(comb$Item_Type, substr(comb$Item_Identifier, 1, 2))
+ 
+ #?substr() # This has structure - substr(x,start,stop)
+ 
+ # based on above we can create new feature called Item_Category.
+ 
+ comb[,Item_category := substr(comb$Item_Identifier,1,2)]
+ 
+ # 3. we will also change the Item_Fat_Content whenever Item_Category is 'NC' because non-consumable items cannot have any fat content.
+ 
+ # View(comb)
+ 
+ comb$Item_Fat_Content[comb$Item_category =='NC'] = "Non-Edible"
+ 
+ # View(comb)
+ 
+ # 4. Lets change Outlet_Years (years of operation)
+ 
+ comb[,  Outlet_Years := 2013 - Outlet_Establishment_Year]
+ 
+ # View(comb)
+ 
+ #str(comb)
+ 
+ # Note that Outlet_Establishemnt_Year is in intetger. Lets change into Factor. 
+ 
+ comb$Outlet_Establishment_Year = as.factor(comb$Outlet_Establishment_Year)
+                                            
+ # str(comb)
+ 
+ # 5. lets add price per unit weight.
+ 
+ comb[, Price_per_unit_wt := Item_MRP/Item_Weight]
+ 
+# View(comb) 
+ 
+# 6. Lastly we had got 4 diferent distributions when we had ploted Item_MRP vs Item_Outlet_Sales plot. so lets create 4 differentchunks and assign a variable to each of these.
+ 
+ # creating new independent variable - Item_MRP_clusters
+ 
+ comb[, Item_MRP_Clusters := ifelse(Item_MRP >69 , "1st",
+                                    ifelse(Item_MRP >=69 & Item_MRP <=136, "2nd",
+                                           ifelse(Item_MRP >=136 & Item_MRP < 203,"3rd","4th")))]
+ 
+ 
+ # View(comb)
+ 
+ # next we will use label encoding anf one hot encoding.
+ 
+?dummyVars
+
+ # We will use label encoding to Outlet_Size and Outlet_Location_Type
+ 
+ comb[, Outlet_Size_num := ifelse(Outlet_Size == "small", 0,ifelse(Outlet_Size == 'Medium', 1,2))]
+ 
+ comb[,Outlet_Location_Type_num := ifelse(Outlet_Location_Type == "Tier 3", 0,
+                                           ifelse(Outlet_Location_Type == "Tier 2", 1, 2))]
+ 
+ # View(comb)
+ 
+ # Now lets remove the categorical variables Outlet_Size and Outlet_Location_Type after label encoding.
+ 
+ comb[, c("Outlet_Location_Type", "Outlet_Size") :=NULL]
+ 
+ # View(comb)
+  
+ # Now lets do one hot encoding for all the categorical variables.
+ 
+ ohe = dummyVars("~.", data = comb[,-c("Item_Identifier", "Outlet_Establishment_Year", "Item_Type")], fullRank = T)
+ ohe_df = data.table(predict(ohe, comb[,-c("Item_Identifier", "Outlet_Establishment_Year", "Item_Type")]))
+ comb = cbind(comb[,"Item_Identifier"], ohe_df)
+ 
+ View(comb)
+ 
+ str(comb)
+ 
+ # Now we can see total no. of columns have increased to 28.
+ 
+ # Final EDA step is data preprocessing.
+ 
+ 
+ 
+
+
+```
+
+
