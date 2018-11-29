@@ -8,7 +8,7 @@ output: html_notebook
 
 # First lets set the path.
 
-setwd("E:/ML/Analyts Vidya/Big Mart Sales Prediction Using R")
+setwd ("E:/ML/Analyts Vidya/Big Mart Sales Prediction Using R")
 
 getwd()
 
