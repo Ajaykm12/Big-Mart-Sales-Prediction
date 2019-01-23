@@ -1,26 +1,18 @@
----
-title: "Sales Prediction of a Retail company"
-output: html_notebook
----
-
-
-```{r}
-
 # First lets set the path.
 
-setwd ("E:/ML/Analyts Vidya/Big Mart Sales Prediction Using R")
+setwd("E:/ML/Analyts Vidya/Big Mart Sales Prediction Using R")
 
 getwd()
 
 # First lets load the required packages.
 
-library(data.table) # used for reading and manipulation of data.
-library(dplyr)      # used for data manipulation and joining.
-library(ggplot2)    # used for ploting. 
-library(caret)      # used for modeling.
-library(corrplot)   # used for making correlation plot.
-library(xgboost)    # used for building XGBoost model.
-library(cowplot)    # used for combining multiple plots. 
+library(data.table) # used for reading and manipulation of data
+library(dplyr)      # used for data manipulation and joining
+library(ggplot2)    # used for ploting 
+library(caret)      # used for modeling
+library(corrplot)   # used for making correlation plot
+library(xgboost)    # used for building XGBoost model
+library(cowplot)    # used for combining multiple plots 
 
 ??fread
 
@@ -414,6 +406,102 @@ View(comb)
  # Now we can see total no. of columns have increased to 28.
  
  # Final EDA step is data preprocessing.
+ 
+ #1.  we have highly skewed distribution for Item_Visibility and price_per_unit_wt. So we will do log tranformation here to convert to normal distribution.
+ 
+ comb[, Item_Visibility := log(Item_Visibility + 1)] # Here log + 1 is to avoid division by Zero.
+ 
+ comb[, Price_per_unit_wt := log(Price_per_unit_wt + 1)]
+ 
+ # 2. Next we will scale the numeric predictors.
+ 
+ # Here we scale the nueric variables to make them have a mean of 0, standard deviation of 1 and scale of 0 to 1.
+ # Scaling and centering is required for linear regression models.
+ 
+ num_vars = which(sapply(comb, is.numeric)) # index of numeric features
+ num_vars_names = names(num_vars)
+ comb_numeric = comb[,setdiff(num_vars_names, "Item_Outlet_Sales"), with = F]
+ prep_num = preProcess(comb_numeric, method=c("center", "scale"))
+ comb_numeric_norm = predict(prep_num, comb_numeric)
+ 
+ comb[,setdiff(num_vars_names, "Item_Outlet_Sales") := NULL] # removing numeric independent variables
+ comb = cbind(comb, comb_numeric_norm)    
+      
+ # After preprocessing, lets Splitt the combined data comb back to train and test set.
+ 
+ train = comb[1:nrow(train)]
+ test = comb[(nrow(train) + 1):nrow(comb)]
+ test[,Item_Outlet_Sales := NULL] # removing Item_Outlet_Sales as it contains only NA for test dataset
+ 
+ 
+# As a last step we need to check for the correlated variables.
+ # corelatooon varies from -1 to 1.
+ 
+ # negative correlation: < 0 and >= -1
+ # positive correlation: > 0 and <= 1
+ # no correlation: 0
+ 
+ # It is not desirable to have correlated features if we are using linear regressions.
+ 
+ cor_train = cor(train[,-c("Item_Identifier")])
+ corrplot(cor_train, method = "pie", type = "lower", tl.cex = 0.9)
+ 
+ # The correlation plot above shows correlation between all the possible pairs of variables in out data. The correlation between any two 
+ # variables is represented by a pie. A blueish pie indicates positive correlation and reddish pie indicates negative correlation. 
+ # The magnitude of the correlation is denoted by the area covered by the pie.
+ 
+ # Variables price_per_unit_wt and Item_Weight are highly correlated as the former one was created from the latter. 
+ # Similarly price_per_unit_wt and Item_MRP are highly correlated for the same reason.
+ 
+ # Model Building Part ------------
+ 
+ # 1. Linear regression
+ 
+ #lm?
+ 
+ linear_reg_mod = lm(Item_Outlet_Sales ~ ., data = train[,-c("Item_Identifier")])
+ 
+ # Making predictions on test data
+ 
+ # preparing dataframe for submission and writing it in a csv file
+ # here we are predicting on the test dataset. so we will be removing item_identifier as its not required.
+ 
+ 
+submission$Item_Outlet_Sales = predict(linear_reg_mod, test[,-c("Item_Identifier")])
+ 
+write.csv(submission , "Linear_Reg_submit.csv" , row.names= F)
+
+
+##----------
+
+# Now lets apply Regularized Linear regression.
+
+# 1. lasso regression
+
+set.seed(1235)
+my_control = trainControl(method="cv", number=5)
+Grid = expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0002))
+
+lasso_linear_reg_mod = train(x = train[, -c("Item_Identifier", "Item_Outlet_Sales")], y = train$Item_Outlet_Sales,
+                             method='glmnet', trControl= my_control, tuneGrid = Grid)
+
+print(lasso_linear_reg_mod)
+
+# we get mean validation score as 1129.71
+
+# 2. Ridge Regression 
+
+set.seed(1236)
+my_control = trainControl(method="cv", number=5)
+Grid = expand.grid(alpha = 0, lambda = seq(0.001,0.1,by = 0.0002))
+
+ridge_linear_reg_mod = train(x = train[, -c("Item_Identifier", "Item_Outlet_Sales")], y = train$Item_Outlet_Sales,
+                             method='glmnet', trControl= my_control, tuneGrid = Grid)
+
+print(ridge_linear_reg_mod)
+
+# we get mean validation score as 1134.77
+ 
  
  
  
