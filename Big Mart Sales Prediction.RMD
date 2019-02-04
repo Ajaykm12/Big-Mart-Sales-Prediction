@@ -1,4 +1,5 @@
-# First lets set the path.
+
+ # First lets set the path.
 
 setwd("E:/ML/Analyts Vidya/Big Mart Sales Prediction Using R")
 
@@ -14,7 +15,7 @@ library(corrplot)   # used for making correlation plot
 library(xgboost)    # used for building XGBoost model
 library(cowplot)    # used for combining multiple plots 
 
-??fread
+'??fread'
 
 train = fread("Train_UWu5bXk.csv")
 test  = fread("Test_u94Q5KV.csv") 
@@ -501,7 +502,112 @@ ridge_linear_reg_mod = train(x = train[, -c("Item_Identifier", "Item_Outlet_Sale
 print(ridge_linear_reg_mod)
 
 # we get mean validation score as 1134.77
+
+## random Forest
+
+set.seed(1237)
+my_control = trainControl(method="cv", number=5) # 5-fold CV
+tgrid = expand.grid(
+  .mtry = c(3:10),
+  .splitrule = "variance",
+  .min.node.size = c(10,15,20)
+)
+rf_mod = train(x = train[, -c("Item_Identifier", "Item_Outlet_Sales")], 
+               y = train$Item_Outlet_Sales,
+               method='ranger', 
+               trControl= my_control, 
+               tuneGrid = tgrid,
+               num.trees = 400,
+               importance = "permutation")
  
+
+## Mean validation score: 1088.05
+
+## Now let's visualize the RMSE scores for different tuning parameters.
+
+## Best Model Parameters
+
+print(rf_mod)
+
+plot(rf_mod)
+
+## As per the plot shown above, the best score is achieved at mtry = 5 and min.node.size = 20
+
+# Variable Importance
+# Let's plot feature importance based on the RandomForest model
+
+plot(varImp(rf_mod))
+
+## Observation :
+
+## As expected Item_MRP is the most important variable in predicting the target variable. New features created by us, like price_per_unit_wt, Outlet_Years, 
+## Item_MRP_Clusters, are also among the top most important variables. This is why feature engineering plays such a crucial role in predictive modeling.
+
+# XGBoost 
+
+# XGBoost works only with numeric variables and we have already replaced the categorical variables with numeric variables. 
+# There are many tuning parameters in XGBoost which can be broadly classified into General Parameters, Booster Parameters and Task Parameters.
+
+# Lets check the diff. parameters used. 
+
+# 1. eta: It is also known as the learning rate or the shrinkage factor. It actually shrinks the feature weights to make the boosting process more conservative. The range is 0 to 1. Low eta value means the model is more robust to overfitting.
+# 2. gamma: The range is 0 to ???. Larger the gamma more conservative the algorithm is.
+# 3. max_depth: We can specify maximum depth of a tree using this parameter.
+# 4. subsample: It is the proportion of rows that the model will randomly select to grow trees.
+# 5. colsample_bytree: It is the ratio of variables randomly chosen to build each tree in the model.
+
+param_list = list(
+  
+  objective = "reg:linear",
+  eta=0.01,
+  gamma = 1,
+  max_depth=6,
+  subsample=0.8,
+  colsample_bytree=0.5
+)
+
+dtrain = xgb.DMatrix(data = as.matrix(train[,-c("Item_Identifier", "Item_Outlet_Sales")]), label= train$Item_Outlet_Sales)
+dtest = xgb.DMatrix(data = as.matrix(test[,-c("Item_Identifier")]))
+
+# Cross Validation
+# We are going to use the xgb.cv() function for cross validation. This function comes with the xgboost package itself. 
+# Here we are using cross validation for finding the optimal value of nrounds.
+
+set.seed(112)
+xgbcv = xgb.cv(params = param_list, 
+               data = dtrain, 
+               nrounds = 1000, 
+               nfold = 5, 
+               print_every_n = 10, 
+               early_stopping_rounds = 30, 
+               maximize = F)
+
+
+# Model Training
+
+
+# As per the verbose above, we got the best validation/test score at the 439th iteration.
+# Hence, we will use nrounds = 439 for building the XGBoost model.
+
+xgb_model = xgb.train(data = dtrain, params = param_list, nrounds = 439)
+
+# Leaderboard score: 1154.70
+
+# This model has even outperformed the RandomForest model.
+
+# Variable Importance
+
+var_imp = xgb.importance(feature_names = setdiff(names(train), c("Item_Identifier", "Item_Outlet_Sales")), 
+                         model = xgb_model)
+xgb.plot.importance(var_imp)
+
+
+# Again the features created by us, like price_per_unit_wt, Outlet_Years, Item_MRP_Clusters, are among the top most important variables.
+
+# Summary :
+
+# After trying and testing 5 different algorithms, the best score on the public leaderboard has been achieved by XGBoost (1154.70), 
+# followed by RandomForest (1157.25). However, there are still a plenty of things that we can try to further improve our predictions.
  
  
  
