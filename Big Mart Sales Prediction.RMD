@@ -12,7 +12,7 @@ library(dplyr)        # used for data manipulation and joining
 library(ggplot2)      # used for ploting 
 library(caret)        # used for modeling
 library(corrplot)     # used for making correlation plot
-library(xgboost)    # used for building XGBoost model
+library(xgboost)      # used for building XGBoost model
 library(cowplot)    # used for combining multiple plots 
 
 '??fread'
