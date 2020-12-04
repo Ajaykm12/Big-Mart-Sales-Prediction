@@ -7,7 +7,7 @@ getwd()
 
 # First lets load the required packages.
 
-library(data.table)   # used for reading and manipulation of data
+library(data.table)  # used for reading and manipulation of data
 library(dplyr)        # used for data manipulation and joining
 library(ggplot2)      # used for ploting 
 library(caret)        # used for modeling
